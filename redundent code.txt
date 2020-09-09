@@ -1,0 +1,77 @@
+diabetes = diabetes[,-1] #remove first column
+#remove the colunms containing N/A a lot
+diabetes %>% select(-weight, -payer_code, -medical_specialty) 
+
+colSums(is.na(diabetes_new)) # check if there is still missing data (result is race)
+
+diabetes_new %>% filter(A1Cresult == ">8") %>% group_by(readmitted) %>%
+  summarise(n())
+
+diabetes_new %>% group_by(A1Cresult, readmitted) %>%
+  summarise(n())
+diabetes_new %>% group_by(race, readmitted) %>%
+  summarise(n())
+
+
+diabetes$race = ifelse(diabetes$race == "Caucasian", "Caucasian", "Other")
+diabetes_new %>% group_by(race) %>% summarise(n()) 
+
+
+
+train$X = factor(train$X)
+train$discharge_disposition_id = factor(train$discharge_disposition_id)
+train$admission_source_id = factor(train$admission_source_id)
+train$Length.of.Stay = factor(train$Length.of.Stay)
+train$num_lab_procedures = factor(train$num_lab_procedures)
+train$num_procedures = factor(train$num_procedures)
+train$num_medications = factor(train$num_medications)
+train$number_outpatient = factor(train$number_outpatient)
+train$number_emergency = factor(train$number_emergency)
+train$number_inpatient = factor(train$number_inpatient)
+train$number_diagnoses = factor(train$number_diagnoses)
+
+
+
+#2 Remove the rows that containing missing data, i.e removing all recordings containing N/A 
+diabetes_new = na.omit(diabetes_new) 
+
+#3 Remove duplicate inorder to use GLM
+diabetes_new = diabetes_new[!duplicated(diabetes_new$patient_nbr),]
+
+#4 Group the 3 categories data into 2
+#  Readmission: "Readmission in 30 days"
+#  No Readmission: "No readmission" & "Readmission in more than 30 days"
+# diabetes_new %>% group_by(readmitted) %>% summarise(n())
+diabetes_new$readmitted = factor(
+  ifelse(diabetes_new$readmitted == "<30", "Readmission", "No Readmission"))
+diabetes_new %>% group_by(readmitted) %>% summarise(n())
+
+
+
+
+
+# Delete the useless columns
+diabetes_new = diabetes_new %>% 
+  select(-num_lab_procedures, -num_procedures, -number_diagnoses, -num_medications, -number_outpatient, -number_emergency, -number_inpatient)
+
+diabetes_new = diabetes_new %>%  
+  select(-metformin, -glyburide, -examide, -citoglipton, -repaglinide, -nateglinide, -chlorpropamide, -glimepiride, -acetohexamide, -glipizide, - tolbutamide, -pioglitazone, -rosiglitazone, -acarbose, -miglitol, -troglitazone, -tolazamide, -insulin, -glyburide.metformin, -glipizide.metformin, -glimepiride.pioglitazone, -metformin.pioglitazone, -metformin.rosiglitazone)
+
+
+
+## ROC Curve
+```{r echo=TRUE}
+library(pROC)
+p1 <- predict(logit.red, newdata = test, type = "response")
+roc_logit <- roc(test$readmitted ~ p1)
+## The True Positive Rate ##
+TPR <- roc_logit$sensitivities
+## The False Positive Rate ##
+FPR <- 1 - roc_logit$specificities
+plot(FPR, TPR, xlim = c(0,1), ylim = c(0,1), type = 'l', lty = 1, lwd = 2,col = 'red')
+abline(a = 0, b = 1, lty = 2, col = 'blue')
+text(0.7,0.4,label = paste("AUC = ", round(auc(roc_logit),2)))
+auc(roc_logit)
+```
+
+

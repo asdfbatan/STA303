@@ -1,0 +1,251 @@
+---
+title: "Final_Project_Mona"
+author: "Mona"
+date: "2020/8/21"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Organize the originial data
+```{r echo=TRUE}
+diabetes = read.csv("diabetes_update.csv", header = TRUE)
+
+#Remove useless columns
+diabetes_new = diabetes %>% 
+  select(-encounter_id, -weight, -admission_source_id, -payer_code, -diabetesMed, -encounter_num) 
+```
+
+## Regroup the important covariants
+```{r echo=TRUE}
+# Regroup race 
+diabetes_new$race[!diabetes_new$race %in% c("Caucasian", "AfricanAmerican")]="Other"
+diabetes_new$race = factor(diabetes_new$race) #Remove the unshown categories.
+table(diabetes_new$race) 
+
+
+# Regroup gender, remove the unkowns
+diabetes_new = diabetes_new %>% filter(!gender == "Unknown/Invalid")
+diabetes_new$gender = factor(diabetes_new$gender)
+table(diabetes_new$gender)
+
+
+# Regroup age, set a new column "age_new“
+diabetes_new = diabetes_new %>% mutate(age_new = 
+                                         ifelse(age == "[0-10)"|age == "[10-20)"|age == "[20-30)", "<30", 
+                                                ifelse(age == "[30-40)"|age == "[40-50)"|age == "[50-60)", "30-60", ">60")))
+diabetes_new$age_new = factor(diabetes_new$age_new)
+table(diabetes_new$age_new)
+
+
+# Regroup length of stay, set a new column "stay_length_new“
+diabetes_new = diabetes_new %>% mutate(stay_length_new = 
+                                         ifelse(Length.of.Stay == "1"|Length.of.Stay == "2"|Length.of.Stay == "3"|Length.of.Stay == "4"|Length.of.Stay == "5", "1-5", 
+                                                ifelse(Length.of.Stay == "6"|Length.of.Stay == "7"|Length.of.Stay == "8"|Length.of.Stay == "9"|Length.of.Stay == "10", "6-10", ">10")))
+diabetes_new$stay_length_new = factor(diabetes_new$stay_length_new)
+table(diabetes_new$stay_length_new)
+
+
+# Regroup discharge_disposition_id, set a new column "discharge_disposition_new
+# (remove the death ones, make the others into 2)
+diabetes_new = diabetes_new[!diabetes_new$discharge_disposition_id %in% c(11,13,14,19,21),]
+table(diabetes_new$discharge_disposition_id)
+diabetes_new = diabetes_new %>% 
+  mutate(discharge_disposition_new = ifelse(discharge_disposition_id=="1", "Discharge to home","Otherwise"))
+diabetes_new$discharge_disposition_new = factor(diabetes_new$discharge_disposition_new)
+
+
+# Regroup fpr medications
+# Citation: https://www.kaggle.com/tim101/diabetes-130-us-hospital-with-gbm-and-xgboost
+keys <- c('metformin', 'repaglinide', 'nateglinide', 'chlorpropamide', 'glimepiride', 'glipizide', 'glyburide', 'pioglitazone', 'rosiglitazone', 'acarbose', 'miglitol', 'insulin', 'glyburide.metformin', 'tolazamide', 'metformin.pioglitazone','metformin.rosiglitazone', 'glimepiride.pioglitazone', 'glipizide.metformin', 'troglitazone', 'tolbutamide', 'acetohexamide')
+diabetes_new$num_med <- 0
+diabetes_new$num_changes <- 0
+for(key in keys){
+  diabetes_new$num_med <- ifelse(diabetes_new[key] != 'No', diabetes_new$num_med + 1, diabetes_new$num_med)
+  diabetes_new$num_changes <- ifelse((diabetes_new[key] == 'Up' | diabetes_new[key] == 'Down'), diabetes_new$num_changes + 1, diabetes_new$num_changes)
+}
+table(diabetes_new$num_med)
+table(diabetes_new$num_changes)
+
+
+# Regroup for HbA1c
+diabetes_new$HbA1c = ifelse(diabetes_new$A1Cresult=="None",1, 
+                            ifelse(diabetes_new$A1Cresult=="Norm"|diabetes_new$A1Cresult==">7",2,
+                                   ifelse(diabetes_new$A1Cresult==">8" & diabetes_new$change=="No",3,4)))
+diabetes_new$HbA1c = factor(diabetes_new$HbA1c)
+table(diabetes_new$HbA1c)
+
+
+# Regroup for Number of procedures
+diabetes_new = diabetes_new %>% mutate(nbr_of_procedures = num_lab_procedures + num_procedures + num_medications)
+
+
+# Regroup for Number of visits
+diabetes_new = diabetes_new %>% mutate(nbr_of_visits = number_outpatient + number_emergency + number_inpatient)
+
+# Regroup nbr_of_visits, set a new column "nbr_of_visits_new“
+diabetes_new = diabetes_new %>% mutate(nbr_of_visits_new = 
+                                         ifelse(nbr_of_visits == "0"|nbr_of_visits == "1"|nbr_of_visits == "2"|nbr_of_visits == "3"|nbr_of_visits == "4", "0-4", "5-9"))
+diabetes_new$nbr_of_visits_new = factor(diabetes_new$nbr_of_visits_new)
+table(diabetes_new$nbr_of_visits_new)
+
+
+# Regroup for medical_specialty
+# Citation: https://www.kaggle.com/tim101/diabetes-130-us-hospital-with-gbm-and-xgboost
+sum(is.na(diabetes_new['medical_specialty']))/nrow(diabetes_new) * 100
+diabetes_new$medical_specialty <- factor(diabetes_new$medical_specialty, levels=c(levels(diabetes_new$medical_specialty), "Missing"))
+diabetes_new$medical_specialty[is.na(diabetes_new$medical_specialty)] <- "Missing"
+
+levels(diabetes_new$medical_specialty)[levels(diabetes_new$medical_specialty) == "Family/GeneralPractice"] <- "General"
+levels(diabetes_new$medical_specialty)[levels(diabetes_new$medical_specialty) %in% c("Cardiology", "Cardiology-Pediatric", "Gastroenterology", "Endocrinology", "Endocrinology-Metabolism", "Hematology", "Hematology/Oncology", "InternalMedicine", "Nephrology", "InfectiousDiseases", "Oncology", "Proctology", "Pulmonology", "Rheumatology", "SportsMedicine", "Urology")] <- "InternalMedicine"
+levels(diabetes_new$medical_specialty)[levels(diabetes_new$medical_specialty) == "Emergency/Trauma"] <- "Emergency"
+levels(diabetes_new$medical_specialty)[levels(diabetes_new$medical_specialty) %in% c("Anesthesiology", "Anesthesiology-Pediatric", "AllergyandImmunology", "Dentistry", "Dermatology", "Neurology", "Neurophysiology", "Ophthalmology", "Pathology", "Pediatrics", "Pediatrics-AllergyandImmunology", "Pediatrics-CriticalCare", "Pediatrics-EmergencyMedicine", "Pediatrics-Endocrinology", "Pediatrics-Hematology-Oncology", "Pediatrics-InfectiousDiseases", "Pediatrics-Neurology", "Pediatrics-Pulmonology", "Perinatology", "PhysicalMedicineandRehabilitation", "PhysicianNotFound", "Podiatry", "Psychiatry", "Psychiatry-Addictive", "Psychiatry-Child/Adolescent", "Psychology", "Radiologist", "Radiology", "Resident", "Speech", "Gynecology", "Obsterics&Gynecology-GynecologicOnco", "Obstetrics", "ObstetricsandGynecology", "OutreachServices", "DCPTEAM", "Hospitalist")] <- "Other"
+levels(diabetes_new$medical_specialty)[levels(diabetes_new$medical_specialty) %in% c("Orthopedics", "Orthopedics-Reconstructive", "Osteopath", "Otolaryngology", "Surgeon", "Surgery-Cardiovascular", "Surgery-Cardiovascular/Thoracic", "Surgery-Colon&Rectal", "Surgery-General", "Surgery-Maxillofacial", "Surgery-Neuro", "Surgery-Pediatric", "Surgery-Plastic", "Surgery-PlasticwithinHeadandNeck", "Surgery-Thoracic", "Surgery-Vascular", "SurgicalSpecialty")] <- "Surgery"
+
+#Medical Specialty column has 49% missing data, but it is kept since it probably has significance on the prediction. Hence, the missing values are recoded to a new level Missing. Moreover, medical specialty categories are grouped based on https://www.sgu.edu/blog/medical/ultimate-list-of-medical-specialties/ to simplify analysis process.
+table(diabetes_new$medical_specialty)
+
+
+# Remove useless variables
+diabetes_new = diabetes_new %>%  
+  select(-age, -Length.of.Stay, -nbr_of_visits, -discharge_disposition_id, -num_lab_procedures, -num_procedures, -num_medications, -number_outpatient, -number_emergency, -number_inpatient, -A1Cresult, -metformin, -nateglinide, -chlorpropamide, -glimepiride, -acetohexamide, -glipizide, -glyburide, -tolbutamide, -pioglitazone, -rosiglitazone, -acarbose, -miglitol, -troglitazone, -tolazamide, -examide, -citoglipton, -insulin, -glyburide.metformin, -glipizide.metformin, -glimepiride.pioglitazone, -metformin.rosiglitazone, -metformin.pioglitazone, -change)
+
+str(diabetes_new)
+```
+
+## Modify response variable
+```{r echo=TRUE}
+#  Group the 3 categories data into 2
+#  Readmission: "Readmission in 30 days"
+#  No Readmission: "No readmission" & "Readmission in more than 30 days"
+diabetes_new %>% group_by(readmitted) %>% summarise(n())
+diabetes_new$readmitted = factor(
+  ifelse(diabetes_new$readmitted == "<30", "Readmission", "No Readmission"))
+diabetes_new %>% group_by(readmitted) %>% summarise(n())
+table(diabetes_new$readmitted)
+```
+
+## Check if covarient significant For table 2
+```{r echo=TRUE}
+# For producing table component
+diabetes_new %>% group_by(HbA1c) %>%  summarise(readmit_prob_HbA1c = sum(readmitted == "Readmission"))
+diabetes_new %>% group_by(HbA1c) %>%  summarise(readmit_prob_HbA1c = sum(readmitted == "Readmission")/n())
+table(diabetes_new$HbA1c)
+plot(diabetes_new$HbA1c, diabetes_new$readmit_prob_HbA1c)
+
+
+diabetes_new %>% group_by(race) %>% summarise(readmitprob = sum(readmitted == "Readmission"))
+diabetes_new %>% group_by(race) %>% summarise(readmitprob = sum(readmitted == "Readmission")/n())
+table(diabetes_new$race)
+
+
+diabetes_new %>% group_by(gender) %>% summarise(readmitprob = sum(readmitted == "Readmission"))
+diabetes_new %>% group_by(gender) %>% summarise(readmitprob = sum(readmitted == "Readmission")/n())
+table(diabetes_new$gender)
+
+
+diabetes_new %>% group_by(age_new) %>% summarise(readmitprob = sum(readmitted == "Readmission"))
+diabetes_new %>% group_by(age_new) %>% summarise(readmitprob = sum(readmitted == "Readmission")/n())
+table(diabetes_new$age_new)
+
+
+diabetes_new %>% group_by(discharge_disposition_new) %>% summarise(readmitprob = sum(readmitted == "Readmission"))
+diabetes_new %>% group_by(discharge_disposition_new) %>% summarise(readmitprob = sum(readmitted == "Readmission")/n())
+table(diabetes_new$discharge_disposition_new)
+
+
+diabetes_new %>% group_by(stay_length_new) %>% summarise(readmitprob = sum(readmitted == "Readmission"))
+diabetes_new %>% group_by(stay_length_new) %>% summarise(readmitprob = sum(readmitted == "Readmission")/n())
+table(diabetes_new$stay_length_new)
+ 
+diabetes_new %>% group_by(medical_specialty) %>%  summarise(readmitprob = sum(readmitted == "Readmission"))
+diabetes_new %>% group_by(medical_specialty) %>%  summarise(readmitprob = sum(readmitted == "Readmission")/n())
+table(diabetes_new$medical_specialty)
+
+diabetes_new %>% group_by(nbr_of_visits_new) %>%  summarise(readmitprob = sum(readmitted == "Readmission"))
+diabetes_new %>% group_by(nbr_of_visits_new) %>%  summarise(readmitprob = sum(readmitted == "Readmission")/n())
+table(diabetes_new$nbr_of_visits_new)
+
+diabetes_new %>% group_by(number_diagnoses) %>%  summarise(readmitprob = sum(readmitted == "Readmission")/n())
+table(diabetes_new$number_diagnoses)
+
+diabetes_new %>% group_by(num_changes) %>%  summarise(readmitprob = sum(readmitted == "Readmission")/n())
+table(diabetes_new$num_changes)
+
+
+diabetes_new %>% group_by(max_glu_serum) %>%  summarise(readmitprob = sum(readmitted == "Readmission"))
+diabetes_new %>% group_by(max_glu_serum) %>%  summarise(readmitprob = sum(readmitted == "Readmission")/n())
+table(diabetes_new$max_glu_serum)
+```
+
+## Make the test and train dataset and the logestic model
+```{r echo=TRUE}
+diabetes_glm = diabetes_new[!duplicated(diabetes_new$patient_nbr),]
+set.seed(1004424517)
+# consider situation that patients coming several times
+testid = sample(diabetes_glm$patient_nbr, 20000)
+
+test = diabetes_glm[diabetes_glm$patient_nbr %in% testid,]
+train = diabetes_glm[!diabetes_glm$patient_nbr %in% testid,]
+
+train = train %>% select(-patient_nbr)
+
+logit.mod = glm(readmitted~., family = binomial, data = train)
+summary(logit.mod)
+
+# Reduced model
+logit.red = step(logit.mod, trace = 0)
+summary(logit.red)
+# Full model has some not very significant. So removed in reduced model.
+
+```
+
+## Predicted Probability
+```{r echo=TRUE}
+# From lecture code
+library(rms)
+logit.mod3 = lrm(readmitted~.,  data = train, x=TRUE, y=TRUE, model=T)
+cross.calib = calibrate(logit.mod3, method = "crossvalidation", B=10)
+plot(cross.calib, las=1, xlab = "Predicted Probability")
+```
+
+## Covariant Intercation
+```{r echo=TRUE}
+## Intercation between multiple variables
+logit.mod1 = glm(readmitted~HbA1c*num_changes, family = binomial, data = train)
+summary(logit.mod1)
+
+## Reduce the model and keep the significant terms
+logit.red1 = step(logit.mod1, trace = 0)
+summary(logit.red1)
+```
+
+## ROC Curve and other plot
+```{r echo=TRUE}
+library(pROC)
+p1 <- predict(logit.red, newdata = test, type = "response")
+roc_logit <- roc(test$readmitted ~ p1)
+## The True Positive Rate ##
+TPR <- roc_logit$sensitivities
+## The False Positive Rate ##
+FPR <- 1 - roc_logit$specificities
+plot(FPR, TPR, xlim = c(0,1), ylim = c(0,1), type = 'l', lty = 1, lwd = 2,col = 'red')
+abline(a = 0, b = 1, lty = 2, col = 'blue')
+text(0.7,0.4,label = paste("AUC = ", round(auc(roc_logit),2)))
+auc(roc_logit)
+
+
+# Model check section, refer to lecture 6
+res.dev = residuals(logit.red, type = "deviance")
+plot(res.dev)
+
+qqnorm(res.dev)
+qqline(res.dev)
+```
+
+
+
+
